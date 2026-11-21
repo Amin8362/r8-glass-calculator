@@ -1,7 +1,7 @@
-
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'math_engine.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,15 +42,356 @@ class CalculatorUiScreen extends StatefulWidget {
 }
 
 class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
-  // فقط برای نمایش تغییر ظاهری تب‌ها در پیش‌نمایش UI
   int _selectedMode = 0; // 0: عادی، 1: حل مسئله
+
+  String _expression = '';
+  String _lastEvaluatedExpression = '';
+  String _preview = '';
+  String? _errorText;
+  bool _justEvaluated = false;
+
+  final List<CalculationRecord> _history = [];
+
+  bool _isOperator(String ch) =>
+      ch == '+' || ch == '−' || ch == '×' || ch == '÷';
+
+  void _onKeyPressed(String key) {
+    setState(() {
+      _errorText = null;
+
+      if (key == 'AC') {
+        _expression = '';
+        _lastEvaluatedExpression = '';
+        _preview = '';
+        _justEvaluated = false;
+        return;
+      }
+
+      if (key == '⌫') {
+        if (_justEvaluated) {
+          _lastEvaluatedExpression = '';
+          _justEvaluated = false;
+        }
+        if (_expression.isNotEmpty) {
+          _expression = _expression.substring(0, _expression.length - 1);
+        }
+        _preview = LocalMathEngine.evaluatePreview(_expression);
+        return;
+      }
+
+      if (key == '=') {
+        _evaluateCurrent();
+        return;
+      }
+
+      if (key == '±') {
+        _toggleSign();
+        _preview = LocalMathEngine.evaluatePreview(_expression);
+        return;
+      }
+
+      if (key == '%') {
+        if (_expression.isEmpty) return;
+        final String last = _expression[_expression.length - 1];
+        if (RegExp(r'[0-9]').hasMatch(last)) {
+          _expression += '%';
+          _justEvaluated = false;
+          _preview = LocalMathEngine.evaluatePreview(_expression);
+        }
+        return;
+      }
+
+      if (_isOperator(key)) {
+        _handleOperator(key);
+        _preview = LocalMathEngine.evaluatePreview(_expression);
+        return;
+      }
+
+      if (key == '.') {
+        _handleDecimal();
+        _preview = LocalMathEngine.evaluatePreview(_expression);
+        return;
+      }
+
+      // اعداد ۰ تا ۹
+      _handleDigit(key);
+      _preview = LocalMathEngine.evaluatePreview(_expression);
+    });
+  }
+
+  void _handleDigit(String digit) {
+    if (_justEvaluated) {
+      _expression = digit;
+      _lastEvaluatedExpression = '';
+      _justEvaluated = false;
+      return;
+    }
+
+    final int tokenStart = _lastNumberTokenStart();
+    final String currentToken = _expression.substring(tokenStart);
+    if (currentToken == '0') {
+      _expression = _expression.substring(0, tokenStart) + digit;
+      return;
+    }
+
+    if (_expression.isNotEmpty &&
+        _expression[_expression.length - 1] == '%') {
+      _expression += '×$digit';
+      return;
+    }
+
+    _expression += digit;
+  }
+
+  void _handleDecimal() {
+    if (_justEvaluated) {
+      _expression = '0.';
+      _lastEvaluatedExpression = '';
+      _justEvaluated = false;
+      return;
+    }
+
+    if (_expression.isEmpty ||
+        _isOperator(_expression[_expression.length - 1])) {
+      _expression += '0.';
+      return;
+    }
+
+    final String currentToken = _expression.substring(_lastNumberTokenStart());
+    if (currentToken.contains('.') ||
+        currentToken.contains('e') ||
+        currentToken.contains('%')) {
+      return;
+    }
+
+    _expression += '.';
+  }
+
+  void _handleOperator(String op) {
+    if (_expression.isEmpty) {
+      if (op == '−') {
+        _expression = '−';
+      }
+      return;
+    }
+
+    _justEvaluated = false;
+    _lastEvaluatedExpression = '';
+
+    final String last = _expression[_expression.length - 1];
+    if (_isOperator(last)) {
+      if (_expression.length == 1 && last == '−' && op != '−') {
+        return;
+      }
+      _expression = _expression.substring(0, _expression.length - 1) + op;
+    } else if (last == '.') {
+      _expression = '${_expression}0$op';
+    } else {
+      _expression += op;
+    }
+  }
+
+  void _toggleSign() {
+    if (_expression.isEmpty) return;
+    _justEvaluated = false;
+    _lastEvaluatedExpression = '';
+
+    final int start = _lastNumberTokenStart();
+    if (start >= _expression.length) return;
+
+    if (start == 0) {
+      _expression = '−$_expression';
+      return;
+    }
+
+    final String prev = _expression[start - 1];
+    if (prev == '−') {
+      final bool isUnary =
+          start - 1 == 0 || _isOperator(_expression[start - 2]);
+      if (isUnary) {
+        _expression =
+            _expression.substring(0, start - 1) + _expression.substring(start);
+      } else {
+        _expression =
+            '${_expression.substring(0, start - 1)}+${_expression.substring(start)}';
+      }
+    } else if (prev == '+') {
+      _expression =
+          '${_expression.substring(0, start - 1)}−${_expression.substring(start)}';
+    } else {
+      _expression =
+          '${_expression.substring(0, start)}−${_expression.substring(start)}';
+    }
+  }
+
+  int _lastNumberTokenStart() {
+    int i = _expression.length - 1;
+    while (i >= 0) {
+      final String ch = _expression[i];
+      if (RegExp(r'[0-9.%eE]').hasMatch(ch)) {
+        i--;
+      } else if ((ch == '+' || ch == '-') &&
+          i > 0 &&
+          (_expression[i - 1] == 'e' || _expression[i - 1] == 'E')) {
+        i--;
+      } else {
+        break;
+      }
+    }
+    return i + 1;
+  }
+
+  void _evaluateCurrent() {
+    if (_expression.isEmpty) return;
+    String toEval = _expression;
+    while (toEval.isNotEmpty && _isOperator(toEval[toEval.length - 1])) {
+      toEval = toEval.substring(0, toEval.length - 1);
+    }
+    if (toEval.isEmpty) return;
+
+    final MathResult result = LocalMathEngine.evaluate(toEval);
+    if (result.isError) {
+      _errorText = result.error;
+      _preview = '';
+      return;
+    }
+
+    final String formattedExpr = LocalMathEngine.formatExpression(toEval);
+    _lastEvaluatedExpression = formattedExpr;
+    _history.insert(
+      0,
+      CalculationRecord(
+        expression: formattedExpr,
+        result: result.formatted,
+        rawResult: result.raw,
+      ),
+    );
+    if (_history.length > 50) {
+      _history.removeLast();
+    }
+
+    _expression = result.raw;
+    _preview = '';
+    _justEvaluated = true;
+  }
+
+  void _showHistorySheet() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0E1426),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (BuildContext ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0x44FFFFFF),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (_history.isNotEmpty)
+                      TextButton(
+                        onPressed: () {
+                          setState(() => _history.clear());
+                          Navigator.pop(ctx);
+                        },
+                        child: const Text(
+                          'پاک کردن',
+                          style: TextStyle(color: Color(0xFFFCA5A5)),
+                        ),
+                      )
+                    else
+                      const SizedBox(width: 64),
+                    const Text(
+                      'تاریخچه محاسبات',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (_history.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 28),
+                    child: Text(
+                      'هنوز محاسبه‌ای ثبت نشده است',
+                      style: TextStyle(color: Color(0x88E2E8F0)),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _history.length,
+                      separatorBuilder: (_, __) => const Divider(
+                        color: Color(0x18FFFFFF),
+                        height: 1,
+                      ),
+                      itemBuilder: (_, int index) {
+                        final CalculationRecord item = _history[index];
+                        return ListTile(
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 6),
+                          onTap: () {
+                            setState(() {
+                              _expression = item.rawResult;
+                              _lastEvaluatedExpression = item.expression;
+                              _preview = '';
+                              _errorText = null;
+                              _justEvaluated = true;
+                            });
+                            Navigator.pop(ctx);
+                          },
+                          title: Text(
+                            item.expression,
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0x99E2E8F0),
+                            ),
+                          ),
+                          subtitle: Text(
+                            '= ${item.result}',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // پس‌زمینه تیره با گرادیان عمق‌دار
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -64,8 +405,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
               ),
             ),
           ),
-
-          // هاله نوری بالا راست (بسیار سبک بدون افت فریم)
           Positioned(
             top: -90,
             right: -70,
@@ -83,8 +422,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
               ),
             ),
           ),
-
-          // هاله نوری پایین چپ
           Positioned(
             bottom: -110,
             left: -80,
@@ -102,8 +439,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
               ),
             ),
           ),
-
-          // محتوای اصلی صفحه
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
@@ -135,13 +470,10 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // دکمه تاریخچه (جایگاه آماده برای آینده)
         _GlassIconChip(
           icon: Icons.history_rounded,
-          onTap: () => HapticFeedback.lightImpact(),
+          onTap: _showHistorySheet,
         ),
-
-        // سوییچ حالت عادی و حل مسئله (فاز ۳)
         Container(
           padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
@@ -173,8 +505,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
             ],
           ),
         ),
-
-        // دکمه تنظیمات ظاهری
         _GlassIconChip(
           icon: Icons.tune_rounded,
           onTap: () => HapticFeedback.lightImpact(),
@@ -184,6 +514,12 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
   }
 
   Widget _buildDisplayCard() {
+    final String formattedCurrent = LocalMathEngine.formatExpression(_expression);
+    final String secondaryText = _justEvaluated
+        ? _lastEvaluatedExpression
+        : (_preview.isNotEmpty ? '= $_preview' : '');
+    final String primaryText = _errorText ?? formattedCurrent;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(28),
       child: BackdropFilter(
@@ -207,7 +543,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // برچسب وضعیت بالا
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -238,39 +573,53 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
                   ),
                 ],
               ),
-
-              // ناحیه نمایش عبارت و نتیجه نمونه
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    _selectedMode == 0
-                        ? '12,450 + 380 × 2'
-                        : '15% of 480,000',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w400,
-                      color: Color(0x99E2E8F0),
-                      fontFeatures: [FontFeature.tabularFigures()],
+                  if (_justEvaluated && secondaryText.isNotEmpty)
+                    Text(
+                      secondaryText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0x99E2E8F0),
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerRight,
                     child: Text(
-                      _selectedMode == 0 ? '13,210' : '72,000',
-                      style: const TextStyle(
-                        fontSize: 54,
+                      primaryText,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: _errorText != null ? 28 : 50,
                         fontWeight: FontWeight.w600,
-                        letterSpacing: -1.5,
-                        color: Colors.white,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                        letterSpacing: _errorText != null ? 0 : -1.2,
+                        color: _errorText != null
+                            ? const Color(0xFFFCA5A5)
+                            : Colors.white,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ),
+                  if (!_justEvaluated && secondaryText.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      secondaryText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xAA67E8F9),
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -280,7 +629,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
     );
   }
 
-  // نوار آماده برای فاز ۲ (ورودی صوتی طبیعی)
   Widget _buildVoiceActionPill() {
     return GestureDetector(
       onTap: () => HapticFeedback.mediumImpact(),
@@ -330,7 +678,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
     );
   }
 
-  // صفحه کلید شیشه‌ای با یک لایه Blur واحد برای حفظ ۶۰/۱۲۰ فریم
   Widget _buildGlassKeypad() {
     final List<List<_KeySpec>> rows = [
       const [
@@ -393,7 +740,10 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
                       return Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 5),
-                          child: _CalcGlassButton(spec: spec),
+                          child: _CalcGlassButton(
+                            spec: spec,
+                            onTap: () => _onKeyPressed(spec.label),
+                          ),
                         ),
                       );
                     }).toList(),
@@ -419,8 +769,12 @@ class _KeySpec {
 
 class _CalcGlassButton extends StatefulWidget {
   final _KeySpec spec;
+  final VoidCallback onTap;
 
-  const _CalcGlassButton({required this.spec});
+  const _CalcGlassButton({
+    required this.spec,
+    required this.onTap,
+  });
 
   @override
   State<_CalcGlassButton> createState() => _CalcGlassButtonState();
@@ -456,6 +810,7 @@ class _CalcGlassButtonState extends State<_CalcGlassButton> {
                 : const Color(0xFFF8FAFC);
 
     return GestureDetector(
+      onTap: widget.onTap,
       onTapDown: (_) {
         HapticFeedback.lightImpact();
         setState(() => _isPressed = true);
