@@ -1,7 +1,12 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'geometry_view.dart';
 import 'math_engine.dart';
+
+const String kAppVersion = '1.1.0';
+const String kBrandName = 'R8Force';
+const String kAuthorName = 'امین شیردلی';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,7 +27,7 @@ class ModernCalculatorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Modern Calculator',
+      title: 'R8Force Calculator',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -42,7 +47,8 @@ class CalculatorUiScreen extends StatefulWidget {
 }
 
 class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
-  int _selectedMode = 0; // 0: عادی، 1: حل مسئله
+  int _selectedMode = 0; // 0: عادی، 1: هندسه (مساحت، محیط، حجم)
+  bool _hapticsEnabled = true;
 
   String _expression = '';
   String _lastEvaluatedExpression = '';
@@ -54,6 +60,14 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
 
   bool _isOperator(String ch) =>
       ch == '+' || ch == '−' || ch == '×' || ch == '÷';
+
+  void _hapticLight() {
+    if (_hapticsEnabled) HapticFeedback.lightImpact();
+  }
+
+  void _hapticSelect() {
+    if (_hapticsEnabled) HapticFeedback.selectionClick();
+  }
 
   void _onKeyPressed(String key) {
     setState(() {
@@ -113,7 +127,6 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
         return;
       }
 
-      // اعداد ۰ تا ۹
       _handleDigit(key);
       _preview = LocalMathEngine.evaluatePreview(_expression);
     });
@@ -275,8 +288,21 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
     _justEvaluated = true;
   }
 
+  void _receiveFromGeometry(String rawValue) {
+    _hapticSelect();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _selectedMode = 0;
+      _expression = rawValue;
+      _lastEvaluatedExpression = 'نتیجه هندسه';
+      _preview = '';
+      _errorText = null;
+      _justEvaluated = true;
+    });
+  }
+
   void _showHistorySheet() {
-    HapticFeedback.lightImpact();
+    _hapticLight();
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF0E1426),
@@ -350,6 +376,7 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
                               const EdgeInsets.symmetric(horizontal: 6),
                           onTap: () {
                             setState(() {
+                              _selectedMode = 0;
                               _expression = item.rawResult;
                               _lastEvaluatedExpression = item.expression;
                               _preview = '';
@@ -382,6 +409,170 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _showAboutAndSettingsSheet() {
+    _hapticLight();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0E1426),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (BuildContext ctx) {
+        return StatefulBuilder(
+          builder: (BuildContext sheetCtx, StateSetter setModalState) {
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 16, 22, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0x44FFFFFF),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0x336366F1),
+                              Color(0x2206B6D4),
+                            ],
+                          ),
+                          border: Border.all(color: const Color(0x44818CF8)),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  kBrandName,
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.4,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0x2606B6D4),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0x5567E8F9),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'v$kAppVersion',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF67E8F9),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            const Divider(color: Color(0x22FFFFFF), height: 1),
+                            const SizedBox(height: 12),
+                            const Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'طراحی و توسعه:',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    color: Color(0xAAE2E8F0),
+                                  ),
+                                ),
+                                Text(
+                                  kAuthorName,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'امکانات این نسخه:',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xAAE2E8F0),
+                                  ),
+                                ),
+                                Text(
+                                  'محاسبات دقیق + هندسه ۲بعدی و ۳بعدی',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: Color(0xFFA5B4FC),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0x12FFFFFF),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0x1FFFFFFF)),
+                        ),
+                        child: SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          activeColor: const Color(0xFF67E8F9),
+                          title: const Text(
+                            'بازخورد لمسی دکمه‌ها (ویبره)',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.white,
+                            ),
+                          ),
+                          value: _hapticsEnabled,
+                          onChanged: (bool val) {
+                            setState(() => _hapticsEnabled = val);
+                            setModalState(() {});
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -441,24 +632,61 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
           ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
               child: Column(
                 children: [
                   _buildTopBar(),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
                   Expanded(
-                    flex: 4,
-                    child: _buildDisplayCard(),
+                    child: _selectedMode == 0
+                        ? _buildStandardCalculator()
+                        : GeometryCalculatorView(
+                            onSendToCalculator: _receiveFromGeometry,
+                            hapticsEnabled: _hapticsEnabled,
+                          ),
                   ),
-                  const SizedBox(height: 14),
-                  _buildVoiceActionPill(),
-                  const SizedBox(height: 14),
-                  Expanded(
-                    flex: 7,
-                    child: _buildGlassKeypad(),
-                  ),
+                  const SizedBox(height: 8),
+                  _buildBrandFooter(),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStandardCalculator() {
+    return Column(
+      children: [
+        Expanded(
+          flex: 4,
+          child: _buildDisplayCard(),
+        ),
+        const SizedBox(height: 14),
+        _buildVoiceActionPill(),
+        const SizedBox(height: 14),
+        Expanded(
+          flex: 7,
+          child: _buildGlassKeypad(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBrandFooter() {
+    return GestureDetector(
+      onTap: _showAboutAndSettingsSheet,
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '$kBrandName  •  $kAuthorName  •  v$kAppVersion',
+            style: TextStyle(
+              fontSize: 11,
+              letterSpacing: 0.4,
+              color: Color(0x66CBD5E1),
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -489,16 +717,17 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
                 icon: Icons.calculate_rounded,
                 selected: _selectedMode == 0,
                 onTap: () {
-                  HapticFeedback.selectionClick();
+                  _hapticSelect();
+                  FocusScope.of(context).unfocus();
                   setState(() => _selectedMode = 0);
                 },
               ),
               _ModePill(
-                label: 'حل مسئله',
-                icon: Icons.auto_awesome_rounded,
+                label: 'هندسه',
+                icon: Icons.architecture_rounded,
                 selected: _selectedMode == 1,
                 onTap: () {
-                  HapticFeedback.selectionClick();
+                  _hapticSelect();
                   setState(() => _selectedMode = 1);
                 },
               ),
@@ -507,7 +736,7 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
         ),
         _GlassIconChip(
           icon: Icons.tune_rounded,
-          onTap: () => HapticFeedback.lightImpact(),
+          onTap: _showAboutAndSettingsSheet,
         ),
       ],
     );
@@ -526,7 +755,7 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
         filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(28),
             gradient: const LinearGradient(
@@ -556,20 +785,24 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0x4406B6D4)),
                     ),
-                    child: Text(
-                      _selectedMode == 0 ? 'STANDARD' : 'AI SOLVER',
-                      style: const TextStyle(
+                    child: const Text(
+                      'R8FORCE',
+                      style: TextStyle(
                         fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.5,
                         color: Color(0xFF67E8F9),
                       ),
                     ),
                   ),
-                  const Icon(
-                    Icons.graphic_eq_rounded,
-                    size: 18,
-                    color: Color(0x66FFFFFF),
+                  const Text(
+                    'STANDARD',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.2,
+                      color: Color(0x66FFFFFF),
+                    ),
                   ),
                 ],
               ),
@@ -631,12 +864,29 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
 
   Widget _buildVoiceActionPill() {
     return GestureDetector(
-      onTap: () => HapticFeedback.mediumImpact(),
+      onTap: () {
+        if (_hapticsEnabled) HapticFeedback.mediumImpact();
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF161E35),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            content: const Text(
+              'دستیار صوتی و حل مسئله هوشمند در نسخه ۲.۰ فعال می‌شود',
+              textDirection: TextDirection.rtl,
+              style: TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
+        );
+      },
       child: Container(
-        height: 52,
+        height: 50,
         padding: const EdgeInsets.symmetric(horizontal: 18),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(26),
+          borderRadius: BorderRadius.circular(25),
           gradient: const LinearGradient(
             colors: [
               Color(0x286366F1),
@@ -657,10 +907,10 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
                 ),
                 SizedBox(width: 10),
                 Text(
-                  'برای محاسبه صوتی نگه دارید...',
+                  'دستیار صوتی طبیعی (نسخه ۲.۰)',
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
-                    fontSize: 13.5,
+                    fontSize: 13,
                     color: Color(0xCCE2E8F0),
                     fontWeight: FontWeight.w500,
                   ),
@@ -742,6 +992,7 @@ class _CalculatorUiScreenState extends State<CalculatorUiScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 5),
                           child: _CalcGlassButton(
                             spec: spec,
+                            hapticsEnabled: _hapticsEnabled,
                             onTap: () => _onKeyPressed(spec.label),
                           ),
                         ),
@@ -769,10 +1020,12 @@ class _KeySpec {
 
 class _CalcGlassButton extends StatefulWidget {
   final _KeySpec spec;
+  final bool hapticsEnabled;
   final VoidCallback onTap;
 
   const _CalcGlassButton({
     required this.spec,
+    required this.hapticsEnabled,
     required this.onTap,
   });
 
@@ -812,7 +1065,7 @@ class _CalcGlassButtonState extends State<_CalcGlassButton> {
     return GestureDetector(
       onTap: widget.onTap,
       onTapDown: (_) {
-        HapticFeedback.lightImpact();
+        if (widget.hapticsEnabled) HapticFeedback.lightImpact();
         setState(() => _isPressed = true);
       },
       onTapUp: (_) => setState(() => _isPressed = false),
